@@ -13,6 +13,9 @@
   */
 namespace SendGrid;
 
+use GuzzleHttp\Client as GuzzleClient;
+use GuzzleHttp\RequestOptions;
+
 /**
   * Holds the response from an API call.
   */
@@ -160,29 +163,33 @@ class Client
       */
     public function makeRequest($method, $url, $request_body = null, $request_headers = null)
     {
-        $curl = curl_init($url);
-        curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($curl, CURLOPT_HEADER, 1);
-        curl_setopt($curl, CURLOPT_CUSTOMREQUEST, strtoupper($method));
-        curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
-        if(isset($request_headers)) {
+        $options = [RequestOptions::VERIFY => false];
+
+        if (isset($request_headers)) {
             $this->request_headers = array_merge($this->request_headers, $request_headers);
         }
-        if(isset($request_body)) {
-            $request_body = json_encode($request_body);
-            curl_setopt($curl, CURLOPT_POSTFIELDS, $request_body);
-            $content_length = array('Content-Length: ' . strlen($request_body));
-            $content_type = array('Content-Type: application/json');
-            $this->request_headers = array_merge($this->request_headers, $content_type);
+        if (isset($request_body)) {
+            $options[RequestOptions::JSON] = $request_body;
         }
-        curl_setopt($curl, CURLOPT_HTTPHEADER, $this->request_headers);
-        $curl_response = curl_exec($curl);
-        $header_size = curl_getinfo($curl, CURLINFO_HEADER_SIZE);
-        $status_code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
-        $response_body = substr($curl_response, $header_size);
-        $response_header = substr($curl_response, 0, $header_size);
 
-        curl_close($curl);
+        $headers = [];
+        foreach ($this->request_headers as $headerLine) {
+            list($header, $value) = explode(':', $headerLine, 2);
+            $headers[$header] = $value;
+        }
+        $options[RequestOptions::HEADERS] = $headers;
+
+        $client = new GuzzleClient();
+        $response = $client->request($method, $url, $options);
+        
+        $status_code = $response->getStatusCode();
+        $response_body = (string)$response->getBody();
+
+        $response_header = 'HTTP/' . $response->getProtocolVersion() . ' ' . $response->getStatusCode() . ' ' . $response->getReasonPhrase() . "\r\n";
+        foreach ($response->getHeaders() as $header => $values) {
+            $response_header .= $header . ': ' . implode(',', $values) . "\r\n";
+        }
+        $response_header .= "\r\n";
 
         return new Response($status_code, $response_body, $response_header);
     }
